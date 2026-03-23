@@ -1,131 +1,100 @@
 import os
-import time
-import threading
-import requests
 import telebot
+import requests
+import time
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # your personal chat id for auto alerts
-
 bot = telebot.TeleBot(TOKEN)
 
+CHAT_ID = None  # will store user chat id
+
 BOOSTS_URL = "https://api.dexscreener.com/token-boosts/top/v1"
-CHECK_INTERVAL_SECONDS = 120
 
-# stores token addresses already alerted
-seen_tokens = set()
-
-
-def fetch_solana_boosts(limit=5):
-    r = requests.get(BOOSTS_URL, timeout=15)
-    r.raise_for_status()
-    data = r.json()
-
-    solana_tokens = [x for x in data if x.get("chainId") == "solana"]
-    return solana_tokens[:limit]
-
-
-def format_token_line(index, token):
-    token_address = token.get("tokenAddress", "N/A")
-    amount = token.get("amount", "N/A")
-    total_amount = token.get("totalAmount", "N/A")
-    url = token.get("url", "")
-
-    return (
-        f"{index}. {token_address}\n"
-        f"Boost: {amount}\n"
-        f"Total Boost: {total_amount}\n"
-        f"{url}\n"
-    )
-
-
+# ===== START COMMAND =====
 @bot.message_handler(commands=["start"])
 def start(message):
+    global CHAT_ID
+    CHAT_ID = message.chat.id
+
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🔥 Hot Solana Picks")
-    markup.add("📡 Start Alerts", "🛑 Stop Alerts")
+
     bot.send_message(
         message.chat.id,
-        "Hustlemilk is live.\nChoose an option:",
+        "Bot activated 🚀\nYou'll now receive live Solana alerts.",
         reply_markup=markup,
     )
 
 
+# ===== BUTTON (manual trigger) =====
 @bot.message_handler(func=lambda message: message.text == "🔥 Hot Solana Picks")
-def hot_picks(message):
-    try:
-        tokens = fetch_solana_boosts(limit=5)
+def manual_fetch(message):
+    send_picks(message.chat.id)
 
-        if not tokens:
-            bot.send_message(message.chat.id, "No Solana picks found right now.")
+
+# ===== FETCH + FILTER FUNCTION =====
+def send_picks(chat_id):
+    try:
+        r = requests.get(BOOSTS_URL, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        solana_tokens = [x for x in data if x.get("chainId") == "solana"]
+
+        filtered = []
+        for t in solana_tokens:
+            liquidity = float(t.get("liquidityUsd", 0) or 0)
+
+            # 🔥 FILTER (important)
+            if liquidity < 50000:
+                continue
+
+            filtered.append(t)
+
+        top = filtered[:5]
+
+        if not top:
+            bot.send_message(chat_id, "No strong Solana picks right now.")
             return
 
-        lines = ["🔥 Hot Solana Picks:\n"]
-        for i, token in enumerate(tokens, start=1):
-            lines.append(format_token_line(i, token))
+        msg = "🔥 *Filtered Solana Picks:*\n\n"
 
-        bot.send_message(message.chat.id, "\n".join(lines))
+        for t in top:
+            address = t.get("tokenAddress", "N/A")
+            amount = t.get("amount", "N/A")
+            liquidity = t.get("liquidityUsd", "N/A")
+            url = t.get("url", "")
 
-    except requests.RequestException as e:
-        bot.send_message(message.chat.id, f"HTTP error: {e}")
+            msg += (
+                f"🪙 `{address[:6]}...`\n"
+                f"💧 Liquidity: ${liquidity}\n"
+                f"🚀 Boost: {amount}\n"
+                f"{url}\n\n"
+            )
+
+        bot.send_message(chat_id, msg, parse_mode="Markdown")
+
     except Exception as e:
-        bot.send_message(message.chat.id, f"Bot error: {e}")
+        bot.send_message(chat_id, f"Error: {str(e)}")
 
 
-alerts_enabled = False
-
-
-@bot.message_handler(func=lambda message: message.text == "📡 Start Alerts")
-def start_alerts(message):
-    global alerts_enabled
-    alerts_enabled = True
-    bot.send_message(message.chat.id, "Auto alerts started.")
-
-
-@bot.message_handler(func=lambda message: message.text == "🛑 Stop Alerts")
-def stop_alerts(message):
-    global alerts_enabled
-    alerts_enabled = False
-    bot.send_message(message.chat.id, "Auto alerts stopped.")
-
-
-def alert_loop():
-    global alerts_enabled
+# ===== AUTO LOOP (THIS IS THE MONEY PART) =====
+def auto_loop():
+    global CHAT_ID
 
     while True:
-        try:
-            if alerts_enabled and CHAT_ID:
-                tokens = fetch_solana_boosts(limit=10)
+        if CHAT_ID:
+            try:
+                send_picks(CHAT_ID)
+            except:
+                pass
 
-                for token in tokens:
-                    token_address = token.get("tokenAddress")
-                    if not token_address:
-                        continue
-
-                    if token_address not in seen_tokens:
-                        seen_tokens.add(token_address)
-
-                        msg = (
-                            "🚨 New Solana Boost Alert\n\n"
-                            + format_token_line(1, token)
-                        )
-                        bot.send_message(CHAT_ID, msg)
-
-            time.sleep(CHECK_INTERVAL_SECONDS)
-
-        except Exception as e:
-            # keep loop alive even if one request fails
-            print(f"Alert loop error: {e}")
-            time.sleep(CHECK_INTERVAL_SECONDS)
+        time.sleep(300)  # every 5 minutes
 
 
-def main():
-    loop_thread = threading.Thread(target=alert_loop, daemon=True)
-    loop_thread.start()
+# ===== RUN BOTH THREADS =====
+import threading
 
-    print("Bot running...")
-    bot.infinity_polling()
+threading.Thread(target=auto_loop).start()
 
-
-if __name__ == "__main__":
-    main()
+bot.infinity_polling()
