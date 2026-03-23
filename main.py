@@ -5,7 +5,7 @@ import requests
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-DEX_URL = "https://api.dexscreener.com/latest/dex/pairs/solana"
+DEX_URL = "https://api.dexscreener.com/latest/dex/tokens/solana"
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -13,20 +13,25 @@ def start(message):
     markup.add("🔥 Hot Solana Picks")
     bot.send_message(message.chat.id, "Choose an option:", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: True)
-def handle(message):
-    if message.text == "🔥 Hot Solana Picks":
-        data = requests.get(DEX_URL).json()
+
+@bot.message_handler(func=lambda message: message.text == "🔥 Hot Solana Picks")
+def hot_picks(message):
+    try:
+        response = requests.get(DEX_URL)
+        data = response.json()
+
         pairs = data.get("pairs", [])[:5]
 
-        response = "🔥 Top Solana Pairs:\n\n"
+        reply = "🔥 *Top Solana Picks:*\n\n"
         for p in pairs:
-            name = p["baseToken"]["name"]
-            price = p["priceUsd"]
-            volume = p["volume"]["h24"]
+            name = p.get("baseToken", {}).get("name", "Unknown")
+            price = p.get("priceUsd", "N/A")
+            reply += f"{name} — ${price}\n"
 
-            response += f"{name}\n💰 ${price}\n📊 Vol: {volume}\n\n"
+        bot.send_message(message.chat.id, reply, parse_mode="Markdown")
 
-        bot.send_message(message.chat.id, response)
+    except Exception as e:
+        bot.send_message(message.chat.id, "Error fetching data 😅")
+
 
 bot.polling()
