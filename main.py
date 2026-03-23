@@ -20,7 +20,6 @@ SCAN_INTERVAL_SECONDS = 180
 ALERT_COOLDOWN_SECONDS = 3 * 3600
 REQUEST_TIMEOUT = 15
 
-# Sniper filters
 MIN_LIQUIDITY_USD = 12000
 MAX_LIQUIDITY_USD = 250000
 MIN_VOLUME_24H_USD = 30000
@@ -90,7 +89,6 @@ def select_best_pair(pairs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         buys_5m = safe_int(p.get("txns", {}).get("m5", {}).get("buys"))
         price_change_5m = safe_float(p.get("priceChange", {}).get("m5"))
         age_h = pair_age_hours(p)
-
         freshness_bonus = max(0, 24 - age_h) * 2
         return (
             liquidity * 0.00008
@@ -140,7 +138,6 @@ def enrich_token(token: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         boost_amount = safe_float(token.get("amount"))
         total_boost = safe_float(token.get("totalAmount"))
 
-        # Sniper filters
         if liquidity_usd < MIN_LIQUIDITY_USD or liquidity_usd > MAX_LIQUIDITY_USD:
             return None
         if volume_24h < MIN_VOLUME_24H_USD:
@@ -225,11 +222,27 @@ def grade_pick(item: Dict[str, Any]) -> str:
     return "C"
 
 
+def suggest_action(item: Dict[str, Any]) -> str:
+    grade = grade_pick(item)
+    age_h = item["ageHours"]
+    buy_pressure = item["buyPressure"]
+    change_5m = item["priceChange5m"]
+    liquidity = item["liquidityUsd"]
+
+    if grade == "A+" and age_h <= 8 and buy_pressure >= 2 and 2 <= change_5m <= 25 and liquidity >= 25000:
+        return "Small Entry"
+    if grade in {"A+", "A", "B"} and age_h <= 24 and buy_pressure >= 1.2:
+        return "Watch"
+    return "Avoid"
+
+
 def format_pick(item: Dict[str, Any], index: Optional[int] = None) -> str:
     prefix = f"{index}. " if index is not None else ""
     grade = grade_pick(item)
+    action = suggest_action(item)
     return (
         f"{prefix}{item['name']} ({item['symbol']}) [{grade}]\n"
+        f"Action: {action}\n"
         f"Price: ${item['priceUsd']}\n"
         f"Liquidity: ${item['liquidityUsd']:,.0f}\n"
         f"24h Vol: ${item['volume24h']:,.0f}\n"
@@ -279,7 +292,11 @@ def scan_and_alert() -> None:
             last_scan_summary = "No sniper-grade candidates on latest scan."
             return
 
-        fresh = [p for p in picks[:10] if should_alert(p) and grade_pick(p) in {"A+", "A"}]
+        fresh = [
+            p for p in picks[:10]
+            if should_alert(p) and suggest_action(p) in {"Small Entry", "Watch"} and grade_pick(p) in {"A+", "A"}
+        ]
+
         if not fresh:
             last_scan_summary = f"Scan ok. {len(picks)} candidates ranked, no fresh A/A+ alerts."
             return
