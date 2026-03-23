@@ -5,57 +5,47 @@ import requests
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-DEX_URL = "https://api.dexscreener.com/latest/dex/tokens/solana"
+SEARCH_URL = "https://api.dexscreener.com/latest/dex/search"
 
-@bot.message_handler(commands=['start'])
+
+@bot.message_handler(commands=["start"])
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(@bot.message_handler(func=lambda message: message.text == "🔥 Hot Solana Picks")
-def hot_picks(message):
-    try:
-        url = "https://api.dexscreener.com/latest/dex/search/?q=SOL"
-        response = requests.get(url)
-        data = response.json()
-
-        pairs = data.get("pairs", [])[:5]
-
-        if not pairs:
-            bot.send_message(message.chat.id, "No data found 😅")
-            return
-
-        reply = "🔥 *Top Solana Picks:*\n\n"
-        for p in pairs:
-            name = p.get("baseToken", {}).get("name", "Unknown")
-            symbol = p.get("baseToken", {}).get("symbol", "")
-            price = p.get("priceUsd", "N/A")
-
-            reply += f"{name} ({symbol}) — ${price}\n"
-
-        bot.send_message(message.chat.id, reply, parse_mode="Markdown")
-
-    except Exception as e:
-        bot.send_message(message.chat.id, f"Error: {str(e)}"))
+    markup.add("🔥 Hot Solana Picks")
     bot.send_message(message.chat.id, "Choose an option:", reply_markup=markup)
 
 
 @bot.message_handler(func=lambda message: message.text == "🔥 Hot Solana Picks")
 def hot_picks(message):
     try:
-        response = requests.get(DEX_URL)
+        response = requests.get(
+            SEARCH_URL,
+            params={"q": "SOL/USDC"},
+            timeout=15,
+        )
+        response.raise_for_status()
         data = response.json()
 
-        pairs = data.get("pairs", [])[:5]
+        pairs = data.get("pairs", [])
+        solana_pairs = [p for p in pairs if p.get("chainId") == "solana"][:5]
 
-        reply = "🔥 *Top Solana Picks:*\n\n"
-        for p in pairs:
+        if not solana_pairs:
+            bot.send_message(message.chat.id, "No Solana pairs found right now.")
+            return
+
+        reply = "🔥 Top Solana Picks:\n\n"
+        for p in solana_pairs:
             name = p.get("baseToken", {}).get("name", "Unknown")
+            symbol = p.get("baseToken", {}).get("symbol", "")
             price = p.get("priceUsd", "N/A")
-            reply += f"{name} — ${price}\n"
+            reply += f"{name} ({symbol}) — ${price}\n"
 
-        bot.send_message(message.chat.id, reply, parse_mode="Markdown")
+        bot.send_message(message.chat.id, reply)
 
+    except requests.RequestException as e:
+        bot.send_message(message.chat.id, f"HTTP error: {e}")
     except Exception as e:
-        bot.send_message(message.chat.id, "Error fetching data 😅")
+        bot.send_message(message.chat.id, f"Bot error: {e}")
 
 
-bot.polling()
+bot.infinity_polling()
