@@ -10,7 +10,31 @@ DEX_URL = "https://api.dexscreener.com/latest/dex/tokens/solana"
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("🔥 Hot Solana Picks")
+    markup.add(@bot.message_handler(func=lambda message: message.text == "🔥 Hot Solana Picks")
+def hot_picks(message):
+    try:
+        url = "https://api.dexscreener.com/latest/dex/search/?q=SOL"
+        response = requests.get(url)
+        data = response.json()
+
+        pairs = data.get("pairs", [])[:5]
+
+        if not pairs:
+            bot.send_message(message.chat.id, "No data found 😅")
+            return
+
+        reply = "🔥 *Top Solana Picks:*\n\n"
+        for p in pairs:
+            name = p.get("baseToken", {}).get("name", "Unknown")
+            symbol = p.get("baseToken", {}).get("symbol", "")
+            price = p.get("priceUsd", "N/A")
+
+            reply += f"{name} ({symbol}) — ${price}\n"
+
+        bot.send_message(message.chat.id, reply, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Error: {str(e)}"))
     bot.send_message(message.chat.id, "Choose an option:", reply_markup=markup)
 
 
