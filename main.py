@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Set
 import requests
 import telebot
 
+print("OPTIMIZATION BOT V3 STARTING")
+
 # =========================
 # CONFIG
 # =========================
@@ -732,6 +734,7 @@ def process_scan() -> None:
 
         ranked_by_pair = {x["pairAddress"]: x for x in ranked}
 
+        # Update open positions first
         for pair_address, position in list(paper_positions.items()):
             if position.get("status") != "OPEN":
                 continue
@@ -764,6 +767,7 @@ def process_scan() -> None:
                 if sell_signal.startswith("Sell / Exit"):
                     close_position(pair_address, sell_signal)
 
+        # New signals
         for item in ranked[:10]:
             streak = update_confirmation(item)
             action = suggest_action(item, streak)
@@ -831,9 +835,7 @@ def start_cmd(message):
 
     bot.send_message(
         message.chat.id,
-        "Optimization bot activated 🎯\n"
-        "You will receive Watch / Buy Setup / Sell updates.\n"
-        "Paper trades use $100 virtual size by default.",
+        "Optimization bot activated 🎯\nYou will receive Watch / Buy Setup / Sell updates.\nPaper trades use $100 virtual size by default.",
         reply_markup=build_menu(),
     )
 
